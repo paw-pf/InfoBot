@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Env files (mounted as volumes, not copied)
+.env
+
+# Temp files
+temp/
+*.jpg
+*_pass*.jpg
+test_*.jpg
+
+# Logs
+*.log
+
+# Qwen
+.qwen/
+
+# Documentation
+README.md
+SETUP.md
+
+# Images
+img.png
+img_1.png
+img_2.png

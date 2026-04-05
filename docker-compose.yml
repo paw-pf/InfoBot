@@ -1,0 +1,23 @@
+services:
+  infobot:
+    build: .
+    container_name: infobot
+    restart: unless-stopped
+    volumes:
+      # Mount credentials for Google Sheets API
+      - ./credentials.json:/app/credentials.json:ro
+      # Mount .env file
+      - ./.env:/app/.env:ro
+      # Persist temp files (optional, for debugging)
+      - ./temp:/app/temp
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ALLOWED_USERS=${ALLOWED_USERS}
+      - REPORT_CHAT_ID=${REPORT_CHAT_ID}
+      - NIGHT_SHIFT_START_HOUR=${NIGHT_SHIFT_START_HOUR:-20}
+      - DAY_SHIFT_START_HOUR=${DAY_SHIFT_START_HOUR:-6}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
