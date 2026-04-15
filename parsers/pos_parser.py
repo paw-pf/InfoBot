@@ -110,57 +110,6 @@ class POSParser:
         # Returns
         "return_cash": r"(?:Возврат нал|Возврат нал\.|Возврат наличных)\s*[-=]?\s*(\d[\d\s]*|\d+)",
         "return_cashless": r"(?:Возврат безнал|Возврат безнал\.|Возврат безналичных)\s*[-=]?\s*(\d[\d\s]*|\d+)",
-        # Cash income variations
-        "cash_income": (
-            r"(?:"
-            r"Приход"
-            r"|Сумма онлайн-платежей"
-            r"|Сумма\s+онлайн-платеж[ей]"
-            r"|Сумиа онлайн-платежей"
-            r"|Сумма\s+онлаин-платежей"
-            r"|Сушша\s+онлайн-платежей"
-            r"|Приход"
-            r")\s*[-=]?\s*(\d[\d\s]*|\d+)"
-        ),
-        # Cash expense variations
-        "cash_expense": (
-            r"(?:"
-            r"Расходы за смену"
-            r"|Расход"
-            r"|Раскады"
-            r"|Раскоды"
-            r"|Расхоны"
-            r"|Расходы за с[еэи]ну"
-            r"|Расходы за см[ео]ну"
-            r"|Расходы за сш[еи]ну"
-            r"|Расходы за сш[еэи]у"
-            r")\s*[-=]?\s*(\d[\d\s]*|\d+)"
-        ),
-        # Envelope variations
-        "envelope": (
-            r"(?:"
-            r"Инкассация"
-            r"|В конверт"
-            r"|Инкисскция"
-            r"|Инивссьря"
-            r"|Инкасстия"
-            r")\s*[-=]?\s*(\d[\d\s]*|\d+)"
-        ),
-        # Cash remainder - ULTRA RESILIENT
-        "cash_remainder": (
-            r"(?:"
-            r"Ha конец см[еёэюы]ны"
-            r"|Ha конец ск[еёэюы]ны"
-            r"|Ha конец сп[еёэюы]ны"
-            r"|Ha конец си[еёэюы]ны"
-            r"|На конец с[мкпи][еёюы][нп][а-яёы]"
-            r"|Остаток в кассе"
-            r"|Наканац"
-            r"|На начало смены"
-            r"|На начапо смены"
-            r"|Нз налало скены"
-            r")\s*[-=]?\s*(\d[\d\s]*|\d+)"
-        ),
     }
 
     # Ultra-resilient zero patterns
@@ -191,41 +140,6 @@ class POSParser:
             r"|Прэчис доход"
             r")\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)"
         ),
-        "cash_expense": (
-            r"(?:"
-            r"Расходы за смену"
-            r"|Расход"
-            r"|Раскады"
-            r"|Раскоды"
-            r"|Расхоны"
-            r"|Расходы за с[еэи]ну"
-            r"|Расходы за см[ео]ну"
-            r"|Расходы за сш[еи]ну"
-            r"|Расходы за сш[еэи]у"
-            r")\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)"
-        ),
-        "envelope": (
-            r"(?:"
-            r"Инкассация"
-            r"|В конверт"
-            r"|Инкисскция"
-            r"|Инивссьря"
-            r"|Инкасстия"
-            r")\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)"
-        ),
-        "cash_remainder": (
-            r"(?:"
-            r"Ha конец см[еёэюы]ны"
-            r"|Ha конец ск[еёэюы]ны"
-            r"|Ha конец сп[еёэюы]ны"
-            r"|На конец с[мкп][еёюы][нп][а-яёы]"
-            r"|Остаток в кассе"
-            r"|Наканац"
-            r"|На начало смены"
-            r"|На начапо смены"
-            r"|Нз налало скены"
-            r")\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)"
-        ),
         "bar": (
             r"(?:"
             r"Еда"
@@ -248,15 +162,6 @@ class POSParser:
         "acquiring": r"(?:Эквайринг)\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)",
         "return_cash": r"(?:Возврат нал|Возврат нал\.|Возврат наличных)\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)",
         "return_cashless": r"(?:Возврат безнал|Возврат безнал\.|Возврат безналичных)\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)",
-        "cash_income": (
-            r"(?:"
-            r"Приход"
-            r"|Сумма онлайн-платежей"
-            r"|Сумма\s+онлайн-платеж[ей]"
-            r"|Сумиа онлайн-платежей"
-            r"|Сушша\s+онлайн-платежей"
-            r")\s*[-=]?\s*(?:[0Oo][РPp]|[Оо][Рр]|0₽)"
-        ),
         "total": (
             r"(?:"
             r"[©@ОоO0a]?[\s-]*"
@@ -534,84 +439,11 @@ class POSParser:
             if numbers:
                 data['sbp'] = numbers[0]
 
-        # 7. CASH INCOME (Сумма онлайн-платежей)
-        if data.get('cash_income') is None:
-            income_keywords = (
-                r'(?:Сумма онлайн-платежей|Сумиа онлайн-платежей|'
-                r'Сумма\s+онлаин-платежей|Сушша\s+онлайн-платежей|Приход)'
-            )
-            numbers = cls._find_all_numbers_in_context(text, income_keywords, min_val=0, max_val=999999)
-            if numbers:
-                data['cash_income'] = numbers[0]
-            # Fallback: if no income found but we have cash, use it
-            elif data.get('cash'):
-                data['cash_income'] = data['cash']
-
-        # 8. CASH EXPENSE (Расходы за смену)
-        if data.get('cash_expense') is None:
-            expense_keywords = (
-                r'(?:Расходы за смену|Расход|Раскады|Раскоды|Расхоны|'
-                r'Расходы за с[еэи]ну|Расходы за см[ео]ну|'
-                r'Расходы за сш[еи]ну|Расходы за сш[еэи]у)'
-            )
-            # Check if keyword exists in text
-            if re.search(expense_keywords, text, re.IGNORECASE):
-                numbers = cls._find_all_numbers_in_context(text, expense_keywords, min_val=0, max_val=50000)
-                if numbers:
-                    data['cash_expense'] = numbers[0]
-                else:
-                    data['cash_expense'] = '0'  # Default to 0 if keyword exists
-
-        # 9. ENVELOPE (Инкассация)
-        if data.get('envelope') is None:
-            envelope_keywords = (
-                r'(?:Инкассация|В конверт|Инкисскция|Инивссьря|Инкасстия)'
-            )
-            if re.search(envelope_keywords, text, re.IGNORECASE):
-                numbers = cls._find_all_numbers_in_context(text, envelope_keywords, min_val=0, max_val=50000)
-                if numbers:
-                    data['envelope'] = numbers[0]
-                else:
-                    data['envelope'] = '0'  # Default to 0 if keyword exists
-
-        # 10. CASH REMAINDER (На конец смены) - CRITICAL
-        if data.get('cash_remainder') is None:
-            remainder_keywords = (
-                r'(?:Ha конец см[еёэюы]ны|Ha конец ск[еёэюы]ны|Ha конец сп[еёэюы]ны|'
-                r'Ha конец си[еёэюы]ны|'  # OCR error: "сиены" instead of "смены"
-                r'На конец с[мкпи][еёюы][нп][а-яёы]|Остаток в кассе|'
-                r'Наканац|На нача[лп]о см[еёэюы]ны|Нз налало скены)'
-            )
-            numbers = cls._find_all_numbers_in_context(text, remainder_keywords, min_val=100, max_val=50000)
-            if numbers:
-                # Take the largest
-                valid_numbers = [int(n) for n in numbers if 100 <= int(n) <= 50000]
-                if valid_numbers:
-                    data['cash_remainder'] = str(max(valid_numbers))
-            
-            # Fallback: direct multiline search for common OCR errors
-            if data.get('cash_remainder') is None:
-                # Handle "На конец сиены" or similar with number on next line
-                multiline_patterns = [
-                    r'(?:На конец сиены|На конец смены|Ha конец см[еёэюы]ны|Остаток в кассе)\s*\n\s*(\d[\d\s]*)\s*[₽РPрpоО]',
-                    r'(?:На конец сиены|На конец смены|Ha конец см[еёэюы]ны|Остаток в кассе)\s*[-=]?\s*\n\s*(\d[\d\s]*)\s*[₽РPрpоО]?',
-                    r'(?:На конец сиены|На конец смены|Ha конец см[еёэюы]ны|Остаток в кассе)\s*[-=]?\s*(\d[\d\s]*)\s*[₽РPрpоО]',
-                ]
-                for pattern in multiline_patterns:
-                    match = re.search(pattern, text, re.IGNORECASE)
-                    if match:
-                        cleaned = cls._clean_number(match.group(1))
-                        if cleaned.isdigit():
-                            num = int(cleaned)
-                            if 100 <= num <= 50000:
-                                data['cash_remainder'] = cleaned
-                                break
-
-        # 11. ACQUIRING - default to cashless
+        # 8. ACQUIRING - default to cashless
         if data.get('acquiring') is None and data.get('cashless'):
             data['acquiring'] = data['cashless']
 
-        # 12. RETURNS - default to 0
+        # 9. RETURNS - default to 0
         if data.get('return_cash') is None:
             data['return_cash'] = '0'
         if data.get('return_cashless') is None:
@@ -620,12 +452,6 @@ class POSParser:
         # ========================================
         # CROSS-VALIDATION & CORRECTIONS
         # ========================================
-        
-        # If cash is 3-digit and cash_remainder is 4-digit ending with same digits
-        if data.get('cash') and len(data['cash']) == 3:
-            if data.get('cash_remainder') and len(data['cash_remainder']) == 4:
-                if data['cash_remainder'].endswith(data['cash']):
-                    data['cash'] = data['cash_remainder']
 
         # Validate total makes sense (should be >= bar + game_time)
         if data.get('total') and data.get('bar') and data.get('game_time'):

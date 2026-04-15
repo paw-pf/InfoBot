@@ -43,16 +43,14 @@ class BotHandler:
             f"💳 <b>Эквайринг</b> - {fmt('acquiring')}\n"
             f"🍾 <b>Услуги</b> - {fmt('services')}\n"
             f"💵 <b>Возврат нал</b> - {fmt('return_cash')}\n"
-            f"🛜 <b>Возврат безнал</b> - {fmt('return_cashless')}\n"
-            f"{'─' * 30}\n"
-            f"<b>Касса:</b>\n"
-            f"Приход - {fmt('cash_income')}\n"
-            f"Расход - {fmt('cash_expense')}\n"
-            f"В конверт - {fmt('envelope')}\n"
-            f"Остаток в кассе - {fmt('cash_remainder')}"
+            f"🛜 <b>Возврат безнал</b> - {fmt('return_cashless')}"
         )
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.message is None:
+            logger.warning("Received update without message in start_command")
+            return
+
         if not self._is_allowed(update.effective_user.id):
             await update.message.reply_text("❌ У вас нет доступа к этому боту.")
             return
@@ -98,6 +96,10 @@ class BotHandler:
         )
 
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.message is None:
+            logger.warning("Received update without message in handle_photo")
+            return
+
         if not self._is_allowed(update.effective_user.id):
             await update.message.reply_text("❌ У вас нет доступа к этому боту.")
             return
@@ -173,6 +175,10 @@ class BotHandler:
                 os.remove(file_path)
 
     async def handle_text(self, update: Update):
+        if update.message is None:
+            logger.warning("Received update without message in handle_text")
+            return
+
         if not self._is_allowed(update.effective_user.id):
             await update.message.reply_text("❌ У вас нет доступа к этому боту.")
             return
