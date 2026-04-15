@@ -10,6 +10,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = os.getenv("ALLOWED_USERS", "")
 REPORT_CHAT_ID = os.getenv("REPORT_CHAT_ID", "")
+REPORT_THREAD_ID = os.getenv("REPORT_THREAD_ID", "")
 
 # Google Sheets
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")

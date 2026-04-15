@@ -6,7 +6,7 @@ from typing import Dict
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import ALLOWED_USERS_SET, REPORT_CHAT_ID, logger
+from config import ALLOWED_USERS_SET, REPORT_CHAT_ID, REPORT_THREAD_ID, logger
 from parsers import POSParser
 from services import GoogleSheetsManager
 
@@ -134,13 +134,17 @@ class BotHandler:
 
             # Duplicate to report chat if configured
             if REPORT_CHAT_ID and not is_group:
-                logger.info(f"Attempting to send report to chat {REPORT_CHAT_ID}")
+                logger.info(f"Attempting to send report to chat {REPORT_CHAT_ID}" + (f" thread {REPORT_THREAD_ID}" if REPORT_THREAD_ID else ""))
                 try:
-                    await context.bot.send_message(
-                        chat_id=int(REPORT_CHAT_ID),
-                        text=f"📊 <b>Отчёт от {user_name}</b>\n\n{response}",
-                        parse_mode="HTML",
-                    )
+                    send_kwargs = {
+                        "chat_id": int(REPORT_CHAT_ID),
+                        "text": f"📊 <b>Отчёт от {user_name}</b>\n\n{response}",
+                        "parse_mode": "HTML",
+                    }
+                    if REPORT_THREAD_ID:
+                        send_kwargs["message_thread_id"] = int(REPORT_THREAD_ID)
+
+                    await context.bot.send_message(**send_kwargs)
                     await update.message.reply_text("✅ Отчёт также отправлен в рабочий чат!")
                 except Exception as e:
                     error_msg = str(e)
