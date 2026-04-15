@@ -68,9 +68,6 @@ class GoogleSheetsManager:
             services = float(data.services or 0)
             return_cash = float(data.return_cash or 0)
             return_cashless = float(data.return_cashless or 0)
-            cash_expense = float(data.cash_expense or 0)
-            envelope = float(data.envelope or 0)
-            cash_remainder = float(data.cash_remainder or 0)
 
             # Calculate derived fields
             sbp_plus_beznal = sbp + cashless
@@ -95,10 +92,10 @@ class GoogleSheetsManager:
                 fmt(acquiring_to_bank),
                 fmt(pct_acquiring),
                 fmt(pct_sbp),
-                fmt(cash_expense),
+                "",  # Расход — удалено
                 fmt(return_cashless),
                 fmt(return_cash),
-                fmt(envelope),
+                "",  # Инкассация — удалено
                 "",  # Примечание — оставляем пустым
             ]
 
