@@ -25,82 +25,64 @@ class GoogleSheetsManager:
             self.client = gspread.authorize(creds)
             self.spreadsheet = self.client.open_by_key(GOOGLE_SHEET_ID)
             self.sheet = self.spreadsheet.sheet1
-            logger.info("Successfully authenticated with Google Sheets")
+            logger.info("✅ Google Sheets подключены")
         except Exception as e:
-            logger.error(f"Error authenticating with Google Sheets: {e}")
+            logger.error(f"❌ Ошибка подключения к Google Sheets: {e}")
             raise
 
     @staticmethod
-    def _format_num(value, decimals=2, prefix="", suffix=""):
-        if decimals == 0:
-            formatted = f"{value:,.0f}".replace(",", " ")
-        else:
-            formatted = f"{value:,.{decimals}f}"
-            formatted = formatted.replace(",", "X").replace(".", ",").replace("X", " ")
-        return f"{prefix}{formatted}{suffix}"
+    def _clean_value(value: Optional[str]) -> str:
+        """Очищает значение: убирает пробелы, заменяет пустое на '0'"""
+        if not value:
+            return "0"
+        # Убираем пробелы как разделители тысяч (1 000 -> 1000) для корректной работы формул
+        return str(value).replace(" ", "").strip()
 
     def append_report(self, name: str, date: str, shift: str, data: POSReport):
         try:
             expected_headers = [
-                "Дата", "Смена", "Администратор", "Z-отчет",
-                "Игровое время + PS", "Кальян", "Бар", "Нал",
-                "СБП+БЕЗНАЛ", "СБП", "Эквайринг", "Равно?",
-                "ЭКВАЙРИНГ! в банк", "% экв", "% сбп", "Расход",
-                "Возврат безнал", "Возврат нал", "Инкассация", "Примечание",
+                "Дата", "Смена", "Администратор",
+                "💵 Итого", "🕹 Игровое", "🍗 Бар", "🥬 Нал", "🛜 Безнал",
+                "🖥 СБП", "💳 Эквайринг", "🍾 Услуги", "💭 Кальяны",
+                "💵 Возврат нал", "🛜 Возврат безнал",
+                "📥 Приход", "📤 Расход", "📬 В конверт", "🏦 Остаток",
+                "Примечание"
             ]
 
-            # Check if headers exist and match expected
+            # Проверка/создание заголовков
             current_headers = self.sheet.row_values(1)
             if current_headers != expected_headers:
-                logger.info("Updating sheet headers to match expected format")
+                logger.info("🔄 Обновляю заголовки таблицы...")
                 self.sheet.clear()
                 self.sheet.append_row(expected_headers)
-                self.sheet.format("A1:T1", {"textFormat": {"bold": True}})
+                self.sheet.format("A1:S1", {"textFormat": {"bold": True},
+                                            "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9}})
 
-            # Parse numeric values
-            total = float(data.total or 0)
-            game_time = float(data.game_time or 0)
-            bar = float(data.bar or 0)
-            cash = float(data.cash or 0)
-            cashless = float(data.cashless or 0)
-            sbp = float(data.sbp or 0)
-            acquiring = float(data.acquiring or 0)
-            services = float(data.services or 0)
-            return_cash = float(data.return_cash or 0)
-            return_cashless = float(data.return_cashless or 0)
-
-            # Calculate derived fields
-            sbp_plus_beznal = sbp + cashless
-            acquiring_commission = acquiring * 0.025
-            acquiring_to_bank = acquiring - acquiring_commission
-            pct_acquiring = (acquiring / total * 100) if total > 0 else 0
-            pct_sbp = (sbp / total * 100) if total > 0 else 0
-
-            # Prepare row
-            fmt = self._format_num
             row = [
-                date, shift, name,
-                fmt(total),
-                f"р.{fmt(game_time, decimals=0)}",
-                fmt(services),
-                fmt(bar),
-                fmt(cash),
-                f"р.{fmt(sbp_plus_beznal)}",
-                fmt(sbp),
-                fmt(acquiring),
-                "",  # Равно? — оставляем пустым
-                fmt(acquiring_to_bank),
-                fmt(pct_acquiring),
-                fmt(pct_sbp),
-                "",  # Расход — удалено
-                fmt(return_cashless),
-                fmt(return_cash),
-                "",  # Инкассация — удалено
-                "",  # Примечание — оставляем пустым
+                date,  # Дата
+                shift,  # Смена
+                name,  # Администратор
+                self._clean_value(data.total),  # 💵 Итого
+                self._clean_value(data.game_time),  # 🕹 Игровое
+                self._clean_value(data.bar),  # 🍗 Бар
+                self._clean_value(data.cash),  # 🥬 Нал
+                self._clean_value(data.cashless),  # 🛜 Безнал
+                self._clean_value(data.sbp),  # 🖥 СБП
+                self._clean_value(data.acquiring),  # 💳 Эквайринг
+                self._clean_value(data.services),  # 🍾 Услуги
+                self._clean_value(data.smoke),  # 💭 Кальяны (новое)
+                self._clean_value(data.return_cash),  # 💵 Возврат нал
+                self._clean_value(data.return_cashless),  # 🛜 Возврат безнал
+                self._clean_value(data.cash_in),  # 📥 Приход (новое)
+                self._clean_value(data.expense),  # 📤 Расход (новое)
+                self._clean_value(data.envelope),  # 📬 В конверт (новое)
+                self._clean_value(data.cash_remainder),  # 🏦 Остаток (новое)
+                "",  # Примечание (пусто)
             ]
 
             self.sheet.append_row(row)
-            logger.info(f"Successfully appended report for {name} on {date}")
+            logger.info(f"📊 Отчёт сохранён: {name} | {date} | {shift}")
+
         except Exception as e:
-            logger.error(f"Error appending report to Google Sheets: {e}")
+            logger.error(f"❌ Ошибка записи в таблицу: {e}")
             raise

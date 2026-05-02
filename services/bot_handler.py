@@ -19,24 +19,29 @@ from models import POSReport
 
 logger = logging.getLogger(__name__)
 
-# Папка для сохранения фото
 PHOTOS_DIR = Path("photos")
 PHOTOS_DIR.mkdir(exist_ok=True)
 
 
 class InputState(Enum):
-    """Состояния диалога для пошагового ввода"""
+    """Пошаговые состояния ввода строго по порядку отчёта"""
     IDLE = "idle"
     NAME = "name"
-    ACQUIRING = "acquiring"
-    SBP = "sbp"
-    CASH = "cash"
-    BAR = "bar"
-    SERVICES = "services"
-    RETURNS = "returns"
-    EXCHANGE = "exchange"
-    ENVELOPE = "envelope"
-    EXPENSE = "expense"
+    TOTAL = "total"  # 💵 Итого за смену
+    GAME_TIME = "game_time"  # 🕹 Игровое время
+    BAR = "bar"  # 🍗 Бар
+    CASH = "cash"  # 🥬 Нал
+    CASHLESS = "cashless"  # 🛜 Безнал
+    SBP = "sbp"  # 🖥 СБП
+    ACQUIRING = "acquiring"  # Эквайринг
+    SERVICES = "services"  # 🍾 Услуги
+    SMOKE = "smoke" # 💭Кальяны
+    RETURN_CASH = "return_cash"  # 💵 Возврат нал
+    RETURN_CASHLESS = "return_cashless"  # 🛜 Возврат безнал
+    CASH_IN = "cash_in"  # Приход
+    EXPENSE = "expense"  # Расход
+    ENVELOPE = "envelope"  # В конверт
+    CASH_REMAINDER = "cash_remainder"  # Остаток в кассе
     PHOTO = "photo"
 
 
@@ -62,70 +67,40 @@ class BotHandler:
         if user_id in self.user_data:
             self.user_data[user_id] = {}
 
-    def _format_number(self, value: str) -> str:
-        """Форматирует число с пробелами (1000 -> 1 000)"""
-        try:
-            num = int(value)
-            return f"{num:,}".replace(",", " ")
-        except (ValueError, TypeError):
-            return value
-
-    def _generate_report_text(self,  data: Dict[str, str]) -> str:
-        """Генерирует текст итогового отчета"""
-        acquiring = int(data.get("acquiring", 0) or 0)
-        sbp = int(data.get("sbp", 0) or 0)
-        cash = int(data.get("cash", 0) or 0)
-        bar = int(data.get("bar", 0) or 0)
-        services = int(data.get("services", 0) or 0)
-        returns = int(data.get("returns", 0) or 0)
-        exchange = int(data.get("exchange", 0) or 0)
-        envelope = int(data.get("envelope", 0) or 0)
-        expense = int(data.get("expense", 0) or 0)
-
-        game_time = bar + services
-        total = cash + sbp + acquiring
-        cashless = sbp + acquiring
-        cash_remainder = cash - expense - envelope + exchange
-
-        name = data.get("name", "Неизвестно")
-        date = data.get("date", datetime.now().strftime("%d.%m.%Y"))
-        shift = data.get("shift", "День")
-
-        report = (
-            f"{name} {date} {shift}\n"
+    def _generate_report_text(self, data: Dict[str, str]) -> str:
+        get = data.get
+        return (
             f"{'=' * 27}\n"
-            f"💵 Итого за смену - {self._format_number(str(total))}\n"
-            f"🕹 Игровое время - {self._format_number(str(game_time))}\n"
-            f"🍗 Бар - {self._format_number(str(bar))}\n"
-            f"🥬 Нал - {self._format_number(str(cash))}\n"
-            f"🛜 Безнал - {self._format_number(str(cashless))}\n"
-            f"🖥 СБП - {self._format_number(str(sbp))}\n"
-            f"💳 Эквайринг - {self._format_number(str(acquiring))}\n"
-            f"🍾 Услуги - {self._format_number(str(services))}\n"
-            f"💵 Возврат нал - {self._format_number(str(returns))}\n"
-            f"🛜 Возврат безнал - 0\n"
+            f"💵 Итого за смену - {get('total', '0')}\n"
+            f"🕹 Игровое время - {get('game_time', '0')}\n"
+            f"🍗 Бар - {get('bar', '0')}\n"
+            f"🥬 Нал - {get('cash', '0')}\n"
+            f"🛜 Безнал - {get('cashless', '0')}\n"
+            f"🖥 СБП - {get('sbp', '0')}\n"
+            f"💳 Эквайринг - {get('acquiring', '0')}\n"
+            f"🍾 Услуги - {get('services', '0')}\n"
+            f"💭 Кальяны - {get('smoke', '0')}\n"
+            f"💵 Возврат нал - {get('return_cash', '0')}\n"
+            f"🛜 Возврат безнал - {get('return_cashless', '0')}\n"
             f"{'—' * 25}\n"
             f"Касса:\n"
-            f"Приход - {self._format_number(str(cash))}\n"
-            f"Расход - {self._format_number(str(expense))}\n"
-            f"В конверт - {self._format_number(str(envelope))}\n"
-            f"Остаток в кассе - {self._format_number(str(cash_remainder))}\n"
+            f"Приход - {get('cash_in', '0')}\n"
+            f"Расход - {get('expense', '0')}\n"
+            f"В конверт - {get('envelope', '0')}\n"
+            f"Остаток в кассе - {get('cash_remainder', '0')}\n"
             f"{'=' * 26}\n"
-            f"Смену сдал: {name}\n"
+            f"Смену сдал: {get('name', 'Неизвестно')}\n"
         )
-        return report
+
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка /start - начало сессии"""
         if update.message is None:
             return
-
         if not self._is_allowed(update.effective_user.id):
             await update.message.reply_text("❌ У вас нет доступа к этому боту.")
             return
 
         user_id = update.effective_user.id
-
         self._clear_user_data(user_id)
         self.user_data[user_id] = {
             "date": datetime.now().strftime("%d.%m.%Y"),
@@ -147,66 +122,97 @@ class BotHandler:
             f"👋 Привет! Начинаем отчет за смену.\n\n"
             f"📅 Дата: {self.user_data[user_id]['date']}\n"
             f"🌙 Смена: {shift}\n\n"
-            f"Отвечайте на сообщения бота цифрами (без пробелов и символов)."
+            f"Отвечайте на сообщения бота цифрами."
         )
-
         await self._ask_name(update, context)
 
-    # --- Цепочка запросов ---
 
+    # --- Цепочка запросов строго по порядку ---
     async def _ask_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        self._set_user_state(user_id, InputState.NAME)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="👤 Введите ваше имя (или инициалы):"
-        )
+        self._set_user_state(update.effective_user.id, InputState.NAME)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=" Введите ваше имя (или инициалы):")
 
-    async def _ask_acquiring(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self._set_user_state(update.effective_user.id, InputState.ACQUIRING)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="💳 Введите сумму Эквайринга:")
 
-    async def _ask_sbp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self._set_user_state(update.effective_user.id, InputState.SBP)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="💳 Введите сумму СБП:")
+    async def _ask_total(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.TOTAL)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="💵 Введите сумму Итого за смену:")
 
-    async def _ask_cash(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self._set_user_state(update.effective_user.id, InputState.CASH)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="💵 Введите сумму Наличными:")
+
+    async def _ask_game_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.GAME_TIME)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🕹 Введите сумму Игровое время:")
+
 
     async def _ask_bar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self._set_user_state(update.effective_user.id, InputState.BAR)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="🍸 Введите сумму Бара:")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🍗 Введите сумму Бар:")
+
+
+    async def _ask_cash(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.CASH)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🥬 Введите сумму Нал:")
+
+
+    async def _ask_cashless(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.CASHLESS)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🛜 Введите сумму Безнал:")
+
+
+    async def _ask_sbp(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.SBP)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🛜 Введите сумму СБП:")
+
+
+    async def _ask_acquiring(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.ACQUIRING)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="💳 Введите сумму Эквайринг:")
+
 
     async def _ask_services(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self._set_user_state(update.effective_user.id, InputState.SERVICES)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="🍾 Введите сумму Услуг:")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🍾 Введите сумму Услуги:")
 
-    async def _ask_returns(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self._set_user_state(update.effective_user.id, InputState.RETURNS)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="🔁 Введите сумму Возвратов:")
+    async def _ask_smoke(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.SMOKE)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="💭Кальяны:")
 
-    async def _ask_exchange(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self._set_user_state(update.effective_user.id, InputState.EXCHANGE)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="💱 Введите сумму Размена в кассе:")
 
-    async def _ask_envelope(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        self._set_user_state(update.effective_user.id, InputState.ENVELOPE)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="📬 Введите сумму В конверте:")
+    async def _ask_return_cash(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.RETURN_CASH)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="💵 Введите сумму Возврат нал:")
+
+
+    async def _ask_return_cashless(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.RETURN_CASHLESS)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🛜 Введите сумму Возврат безнал:")
+
+
+    async def _ask_cash_in(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.CASH_IN)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=" Введите сумму Приход (Касса):")
+
 
     async def _ask_expense(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self._set_user_state(update.effective_user.id, InputState.EXPENSE)
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="📉 Введите сумму Расхода:")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=" Введите сумму Расход:")
+
+
+    async def _ask_envelope(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.ENVELOPE)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="📬 Введите сумму В конверт:")
+
+
+    async def _ask_cash_remainder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.CASH_REMAINDER)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🏦 Введите сумму Остаток в кассе:")
+
 
     async def _ask_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self._set_user_state(update.effective_user.id, InputState.PHOTO)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=" Прикрепите фото конверта с чеками:"
-        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="📸 Прикрепите фото конверта с чеками:")
 
-    # --- Обработчики ввода ---
 
+    # --- Обработчик текста ---
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message is None:
             return
@@ -224,51 +230,67 @@ class BotHandler:
             await update.message.reply_text("📸 Сейчас жду фото, а не текст.")
             return
 
+        # Имя обрабатываем отдельно
         if state == InputState.NAME:
-            if len(text.strip()) < 2:
+            if len(text) < 2:
                 await update.message.reply_text("❌ Пожалуйста, введите имя (минимум 2 символа):")
                 return
-            self.user_data[user_id]["name"] = text.strip()
-            await update.message.reply_text(f"✅ Принято: {text.strip()}\n\nНачинаем ввод данных:")
-            await self._ask_acquiring(update, context)
+            self.user_data[user_id]["name"] = text
+            await update.message.reply_text(f"✅ Принято: {text}\n\nНачинаем ввод данных:")
+            await self._ask_total(update, context)
             return
 
-        try:
-            value = int(text.replace(" ", "").replace(",", ""))
-            if value < 0:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text("❌ Пожалуйста, введите только цифры (без символов):")
+        # Все остальные поля принимаем как есть (валидация только на пустоту)
+        if not text:
+            await update.message.reply_text("❌ Поле не может быть пустым. Введите 0, если суммы нет:")
             return
 
-        if state == InputState.ACQUIRING:
-            self.user_data[user_id]["acquiring"] = str(value)
-            await self._ask_sbp(update, context)
-        elif state == InputState.SBP:
-            self.user_data[user_id]["sbp"] = str(value)
-            await self._ask_cash(update, context)
-        elif state == InputState.CASH:
-            self.user_data[user_id]["cash"] = str(value)
-            await self._ask_bar(update, context)
-        elif state == InputState.BAR:
-            self.user_data[user_id]["bar"] = str(value)
-            await self._ask_services(update, context)
-        elif state == InputState.SERVICES:
-            self.user_data[user_id]["services"] = str(value)
-            await self._ask_returns(update, context)
-        elif state == InputState.RETURNS:
-            self.user_data[user_id]["returns"] = str(value)
-            await self._ask_exchange(update, context)
-        elif state == InputState.EXCHANGE:
-            self.user_data[user_id]["exchange"] = str(value)
-            await self._ask_envelope(update, context)
-        elif state == InputState.ENVELOPE:
-            self.user_data[user_id]["envelope"] = str(value)
-            await self._ask_expense(update, context)
-        elif state == InputState.EXPENSE:
-            self.user_data[user_id]["expense"] = str(value)
-            await self._ask_photo(update, context)
+        # Маппинг состояний -> ключей в словаре
+        state_to_key = {
+            InputState.TOTAL: "total",
+            InputState.GAME_TIME: "game_time",
+            InputState.BAR: "bar",
+            InputState.CASH: "cash",
+            InputState.CASHLESS: "cashless",
+            InputState.SBP: "sbp",
+            InputState.ACQUIRING: "acquiring",
+            InputState.SERVICES: "services",
+            InputState.SMOKE: "smoke",
+            InputState.RETURN_CASH: "return_cash",
+            InputState.RETURN_CASHLESS: "return_cashless",
+            InputState.CASH_IN: "cash_in",
+            InputState.EXPENSE: "expense",
+            InputState.ENVELOPE: "envelope",
+            InputState.CASH_REMAINDER: "cash_remainder",
+        }
 
+        key = state_to_key.get(state)
+        if key:
+            self.user_data[user_id][key] = text
+
+            # Переход к следующему шагу
+            next_step = {
+                InputState.TOTAL: self._ask_game_time,  # После Итого -> Игровое время
+                InputState.GAME_TIME: self._ask_bar,  # После Игрового -> Бар
+                InputState.BAR: self._ask_cash,  # После Бара -> Нал
+                InputState.CASH: self._ask_cashless,  # После Нала -> Безнал
+                InputState.CASHLESS: self._ask_sbp,  # После Безнала -> СБП
+                InputState.SBP: self._ask_acquiring,  # После СБП -> Эквайринг
+                InputState.ACQUIRING: self._ask_services,  # После Эквайринга -> Услуги
+                InputState.SERVICES: self._ask_smoke,  # После Услуг -> Кальяны
+                InputState.SMOKE: self._ask_return_cash,  # После Кальянов -> Возврат нал
+                InputState.RETURN_CASH: self._ask_return_cashless,  # После Возврата нал -> Возврат безнал
+                InputState.RETURN_CASHLESS: self._ask_cash_in,  # После Возврата безнал -> Приход
+                InputState.CASH_IN: self._ask_expense,  # После Прихода -> Расход
+                InputState.EXPENSE: self._ask_envelope,  # После Расхода -> В конверт
+                InputState.ENVELOPE: self._ask_cash_remainder,  # После В конверт -> Остаток
+                InputState.CASH_REMAINDER: self._ask_photo,  # После Остатка -> Фото
+            }
+            if next_step.get(state):
+                await next_step[state](update, context)
+
+
+    # --- Обработчик фото ---
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message is None:
             return
@@ -292,51 +314,69 @@ class BotHandler:
         filepath = PHOTOS_DIR / filename
 
         await file.download_to_drive(str(filepath))
-        file_size = photo.file_size / 1024
+        await update.message.reply_text("⏳ Загрузка и формирование отчёта...")
 
-        await update.message.reply_text(f"✅ Фото сохранено: `{filename}` ({file_size:.1f} KB)", parse_mode="Markdown")
-
+        # 1. Показываем отчёт пользователю
         report_text = self._generate_report_text(self.user_data[user_id])
         await update.message.reply_text(report_text)
 
+        # 2. Сохраняем в Google Sheets (передаём сырые строки)
         try:
-            data = self.user_data[user_id]
+            d = self.user_data[user_id]
             report_obj = POSReport(
-                total=str(int(data.get("cash", 0)) + int(data.get("sbp", 0)) + int(data.get("acquiring", 0))),
-                game_time=str(int(data.get("bar", 0)) + int(data.get("services", 0))),
-                bar=data.get("bar", "0"),
-                cash=data.get("cash", "0"),
-                cashless=str(int(data.get("sbp", 0)) + int(data.get("acquiring", 0))),
-                sbp=data.get("sbp", "0"),
-                acquiring=data.get("acquiring", "0"),
-                services=data.get("services", "0"),
-                return_cash=data.get("returns", "0"),
-                return_cashless="0",
+                total=d.get("total"),
+                game_time=d.get("game_time"),
+                bar=d.get("bar"),
+                cash=d.get("cash"),
+                cashless=d.get("cashless"),
+                sbp=d.get("sbp"),
+                acquiring=d.get("acquiring"),
+                services=d.get("services"),
+                smoke=d.get("smoke"),
+                return_cash=d.get("return_cash"),
+                return_cashless=d.get("return_cashless"),
+                cash_in=d.get("cash_in"),
+                expense=d.get("expense"),
+                envelope=d.get("envelope"),
+                cash_remainder=d.get("cash_remainder"),
             )
-
             self.sheets_manager.append_report(
-                data["name"], data["date"], data["shift"], report_obj
+                d["name"], d["date"], d.get("shift", ""), report_obj
             )
         except Exception as e:
             logger.error(f"Error saving to Google Sheets: {e}")
-            await update.message.reply_text("️ Ошибка при сохранении в таблицу.")
+            await update.message.reply_text("⚠️ Ошибка при сохранении в таблицу.")
 
+        # 3. Отправляем фото + отчёт в рабочий чат
         is_group = update.effective_chat.type != "private"
+        photo_sent = False
 
         if REPORT_CHAT_ID_INT and not is_group:
             try:
                 send_kwargs = {
                     "chat_id": REPORT_CHAT_ID_INT,
-                    "text": report_text,
+                    "caption": report_text,
                 }
                 if REPORT_THREAD_ID_INT:
                     send_kwargs["message_thread_id"] = REPORT_THREAD_ID_INT
-                await context.bot.send_message(**send_kwargs)
-                await update.message.reply_text("✅ Отчет отправлен в чат клуба!")
+
+                with open(filepath, 'rb') as f:
+                    await context.bot.send_photo(photo=f, **send_kwargs)
+                photo_sent = True
             except Exception as e:
-                logger.error(f"Failed to send to report chat: {e}")
-                await update.message.reply_text("✅ Принято, но не отправлено в чат.")
+                logger.error(f"Failed to send photo to chat: {e}")
+
+        # 4. ️ МГНОВЕННОЕ УДАЛЕНИЕ ФОТО
+        try:
+            if filepath.exists():
+                os.remove(filepath)
+        except Exception as e:
+            logger.warning(f"Не удалось удалить фото: {e}")
+
+        # 5. Финальное сообщение
+        if photo_sent:
+            await update.message.reply_text("✅ Отчёт и фото отправлены в чат клуба!\nВозвращайтесь для следующей смены.")
         else:
-            await update.message.reply_text("✅ Отчет принят!")
+            await update.message.reply_text("✅ Отчёт принят!\nВозвращайтесь для следующей смены.")
 
         self._clear_user_data(user_id)
