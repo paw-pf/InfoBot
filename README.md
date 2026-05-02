@@ -173,9 +173,6 @@ infobot/
 ├── models/
 │   ├── __init__.py
 │   └── report_data.py           # Класс POSReport
-├── parsers/
-│   ├── __init__.py
-│   └── pos_parser.py            # EasyOCR + парсинг данных
 ├── services/
 │   ├── __init__.py
 │   ├── google_sheets.py         # Запись в Google Sheets
@@ -219,7 +216,3 @@ infobot/
 - `credentials.json` должен быть в корне проекта
 - Таблица должна быть открыта для service account
 - Проверьте правильность `GOOGLE_SHEET_ID`
-
-### OCR распознаёт неверно
-
-- Для сложных случаев бот использует 4-проходную обработку — это покрывает большинство ошибок OCR

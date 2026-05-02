@@ -70,7 +70,7 @@ class GoogleSheetsManager:
         """
         match = re.search(r'(\d{1,2})\.(\d{1,2})', date_str)
         if match:
-            day = match.group(1).zfill(2)  # Добавляем ведущий ноль: "1" → "01"
+            day = match.group(1).zfill(2)
             month = match.group(2).zfill(2)
             return f"{day}.{month}"
         return date_str.strip()
@@ -113,11 +113,6 @@ class GoogleSheetsManager:
 
                 # Очищаем смену из таблицы
                 clean_shift = raw_shift.lower().replace('\u200b', '').replace('\xa0', ' ').strip()
-
-                # 🔥 Показываем КАЖДУЮ проверяемую строку (через info, чтобы было видно)
-                logger.info(
-                    f"  [{row_idx}] Дата: '{raw_date or '(пусто)'}'→'{current_date}' | Смена: '{raw_shift}'→'{clean_shift}'")
-                found_any = True
 
                 # Сравнение
                 if current_date == target_date and clean_shift == target_shift:

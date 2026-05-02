@@ -4,7 +4,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     filters,
-    ContextTypes,
+    ContextTypes, JobQueue,
 )
 
 from config import TELEGRAM_BOT_TOKEN, logger
@@ -30,6 +30,13 @@ def main():
         return
 
     logger.info("🔧 Инициализация bot...")
+
+    app = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .job_queue(JobQueue())  # <-- ЭТО ВАЖНО
+        .build()
+    )
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 

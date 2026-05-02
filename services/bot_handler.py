@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict
 from enum import Enum
 from pathlib import Path
@@ -49,6 +49,7 @@ class BotHandler:
     def __init__(self):
         self.sheets_manager = GoogleSheetsManager()
         self.user_data: Dict[int, Dict[str, str]] = {}
+        self.pending_media: Dict[int, Dict] = {}
 
     def _is_allowed(self, user_id: int) -> bool:
         if ALLOWED_USERS_SET is None:
@@ -102,25 +103,38 @@ class BotHandler:
 
         user_id = update.effective_user.id
         self._clear_user_data(user_id)
-        self.user_data[user_id] = {
-            "date": datetime.now().strftime("%d.%m.%Y"),
-            "state": InputState.IDLE
-        }
 
-        current_hour = datetime.now().hour
+        # === УМНОЕ ОПРЕДЕЛЕНИЕ ДАТЫ ДЛЯ СМЕН ===
+        now = datetime.now()
+        current_hour = now.hour
+
+        # Определяем смену
         try:
             from config import NIGHT_SHIFT_START_HOUR, DAY_SHIFT_START_HOUR
-            if current_hour >= NIGHT_SHIFT_START_HOUR or current_hour < DAY_SHIFT_START_HOUR:
-                shift = "Ночь"
-            else:
-                shift = "День"
+            is_night = current_hour >= NIGHT_SHIFT_START_HOUR or current_hour < DAY_SHIFT_START_HOUR
+            shift = "Ночь" if is_night else "День"
         except ImportError:
             shift = "День"
-        self.user_data[user_id]["shift"] = shift
+            is_night = False
+
+        # Если сейчас ночь/раннее утро И смена "Ночь" → дата = вчера
+        if is_night and shift == "Ночь" and current_hour < DAY_SHIFT_START_HOUR:
+            # Ночная смена, которая заканчивается утром, относится к вчерашнему дню
+            report_date = (now - timedelta(days=1)).strftime("%d.%m.%Y")
+            logger.info(f"🌙 Ночная смена: {report_date} (фактически {now.strftime('%d.%m')})")
+        else:
+            report_date = now.strftime("%d.%m.%Y")
+
+        self.user_data[user_id] = {
+            "date": report_date,
+            "shift": shift,
+            "state": InputState.IDLE
+        }
+        # === КОНЕЦ БЛОКА ===
 
         await update.message.reply_text(
             f"👋 Привет! Начинаем отчет за смену.\n\n"
-            f"📅 Дата: {self.user_data[user_id]['date']}\n"
+            f"📅 Дата: {report_date}\n"
             f"🌙 Смена: {shift}\n\n"
             f"Отвечайте на сообщения бота цифрами."
         )
@@ -240,7 +254,6 @@ class BotHandler:
             await self._ask_total(update, context)
             return
 
-        # Все остальные поля принимаем как есть (валидация только на пустоту)
         if not text:
             await update.message.reply_text("❌ Поле не может быть пустым. Введите 0, если суммы нет:")
             return
@@ -292,6 +305,7 @@ class BotHandler:
 
     # --- Обработчик фото ---
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка фото (поддержка одиночных и альбомов)"""
         if update.message is None:
             return
         if not self._is_allowed(update.effective_user.id):
@@ -304,79 +318,149 @@ class BotHandler:
         if state != InputState.PHOTO:
             return
 
-        photo = update.message.photo[-1]
+        message = update.message
+        media_group_id = message.media_group_id
+
+        # === Инициализация сбора альбома ===
+        if user_id not in self.pending_media:
+            self.pending_media[user_id] = {
+                "photos": [],
+                "report_text": None,
+                "media_group_id": media_group_id,
+                "timer": None
+            }
+
+        pending = self.pending_media[user_id]
+
+        # Скачиваем фото в память (не на диск, чтобы потом отправить)
+        photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
+        photo_bytes = await file.download_as_bytearray()
+        pending["photos"].append({
+            "bytes": bytes(photo_bytes),
+            "filename": f"{message.photo[-1].file_unique_id}.jpg"
+        })
 
-        name = self.user_data[user_id].get("name", "unknown").replace(" ", "_")
-        date = self.user_data[user_id].get("date", datetime.now().strftime("%d.%m.%Y"))
-        timestamp = datetime.now().strftime("%H%M%S")
-        filename = f"{name}_{date}_{timestamp}.jpg"
-        filepath = PHOTOS_DIR / filename
+        logger.info(f"📸 Получено фото {len(pending['photos'])} от пользователя {user_id}" +
+                    (f" (альбом: {media_group_id})" if media_group_id else ""))
 
-        await file.download_to_drive(str(filepath))
-        await update.message.reply_text("⏳ Загрузка и формирование отчёта...")
+        # === Если это альбом — ждём остальные фото ===
+        if media_group_id:
+            # Отменяем предыдущий таймер, если был
+            if pending["timer"]:
+                pending["timer"].schedule_removal()
 
-        # 1. Показываем отчёт пользователю
-        report_text = self._generate_report_text(self.user_data[user_id])
-        await update.message.reply_text(report_text)
+            # Планируем обработку через 2 секунды (ждем остальные фото из альбома)
+            pending["timer"] = context.job_queue.run_once(
+                lambda ctx: self._process_pending_photos(ctx, user_id),
+                when=2,  # 2 секунды паузы
+                name=f"process_photos_{user_id}"
+            )
 
-        # 2. Сохраняем в Google Sheets (передаём сырые строки)
+            if len(pending["photos"]) == 1:
+                await message.reply_text("⏳ Загрузка фото...")
+            return  # Ждём остальные фото или таймаут
+
+        # === Одиночное фото — обрабатываем сразу ===
+        await self._process_pending_photos(context, user_id)
+
+    async def _process_pending_photos(self, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+        """Обработка собранных фото (исправленная версия)"""
+        if user_id not in self.pending_media:
+            return
+
+        pending = self.pending_media[user_id]
+        photos = pending["photos"]
+
+        if not photos:
+            self.pending_media.pop(user_id, None)
+            return
+
         try:
-            d = self.user_data[user_id]
-            report_obj = POSReport(
-                total=d.get("total"),
-                game_time=d.get("game_time"),
-                bar=d.get("bar"),
-                cash=d.get("cash"),
-                cashless=d.get("cashless"),
-                sbp=d.get("sbp"),
-                acquiring=d.get("acquiring"),
-                services=d.get("services"),
-                smoke=d.get("smoke"),
-                return_cash=d.get("return_cash"),
-                return_cashless=d.get("return_cashless"),
-                cash_in=d.get("cash_in"),
-                expense=d.get("expense"),
-                envelope=d.get("envelope"),
-                cash_remainder=d.get("cash_remainder"),
-            )
-            self.sheets_manager.append_report(
-                d["name"], d["date"], d.get("shift", ""), report_obj
-            )
-        except Exception as e:
-            logger.error(f"Error saving to Google Sheets: {e}")
-            await update.message.reply_text("⚠️ Ошибка при сохранении в таблицу.")
+            # Генерируем отчёт (если ещё не сгенерирован)
+            if pending["report_text"] is None:
+                pending["report_text"] = self._generate_report_text(self.user_data[user_id])
+            report_text = pending["report_text"]
 
-        # 3. Отправляем фото + отчёт в рабочий чат
-        is_group = update.effective_chat.type != "private"
-        photo_sent = False
+            # Показываем отчёт пользователю
+            await context.bot.send_message(chat_id=user_id, text=report_text)
 
-        if REPORT_CHAT_ID_INT and not is_group:
+            # Сохраняем в Google Sheets
             try:
-                send_kwargs = {
-                    "chat_id": REPORT_CHAT_ID_INT,
-                    "caption": report_text,
-                }
-                if REPORT_THREAD_ID_INT:
-                    send_kwargs["message_thread_id"] = REPORT_THREAD_ID_INT
-
-                with open(filepath, 'rb') as f:
-                    await context.bot.send_photo(photo=f, **send_kwargs)
-                photo_sent = True
+                d = self.user_data[user_id]
+                report_obj = POSReport(
+                    total=d.get("total"), game_time=d.get("game_time"), bar=d.get("bar"),
+                    cash=d.get("cash"), cashless=d.get("cashless"), sbp=d.get("sbp"),
+                    acquiring=d.get("acquiring"), services=d.get("services"), smoke=d.get("smoke"),
+                    return_cash=d.get("return_cash"), return_cashless=d.get("return_cashless"),
+                    cash_in=d.get("cash_in"), expense=d.get("expense"), envelope=d.get("envelope"),
+                    cash_remainder=d.get("cash_remainder"),
+                )
+                self.sheets_manager.append_report(d["name"], d["date"], d.get("shift", ""), report_obj)
             except Exception as e:
-                logger.error(f"Failed to send photo to chat: {e}")
+                logger.error(f"Error saving to Google Sheets: {e}")
+                await context.bot.send_message(chat_id=user_id, text="⚠️ Ошибка при сохранении в таблицу.")
 
-        # 4. ️ МГНОВЕННОЕ УДАЛЕНИЕ ФОТО
-        try:
-            if filepath.exists():
-                os.remove(filepath)
+            # === Отправляем фото в рабочий чат ===
+            # === Отправляем фото в рабочий чат (ОДНИМ АЛЬБОМОМ) ===
+            photo_sent = False
+
+            if REPORT_CHAT_ID_INT and photos:
+                try:
+                    # Готовим медиа для отправки альбомом
+                    media_list = []
+                    for i, photo_data in enumerate(photos):
+                        if i == 0:
+                            # Первое фото с подписью (отчёт)
+                            from telegram import InputMediaPhoto
+                            media = InputMediaPhoto(
+                                media=photo_data["bytes"],
+                                caption=report_text,
+                                parse_mode="HTML"
+                            )
+                        else:
+                            # Остальные фото без подписи
+                            media = InputMediaPhoto(media=photo_data["bytes"])
+                        media_list.append(media)
+
+                    # Отправляем альбом
+                    send_kwargs = {
+                        "chat_id": REPORT_CHAT_ID_INT,
+                        "media": media_list,
+                    }
+                    if REPORT_THREAD_ID_INT:
+                        send_kwargs["message_thread_id"] = REPORT_THREAD_ID_INT
+
+                    await context.bot.send_media_group(**send_kwargs)
+                    logger.info(f"✅ Отправлен альбом из {len(photos)} фото в чат")
+                    photo_sent = True
+
+                except Exception as e:
+                    logger.error(f"Failed to send album to chat: {e}")
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="⚠️ Фото не отправлены в чат (ошибка отправки)."
+                    )
+
+            # Финальное сообщение пользователю
+            if photo_sent:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ Отчёт и {len(photos)} фото отправлены в чат клуба!\nВозвращайтесь для следующей смены."
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"✅ Отчёт принят ({len(photos)} фото сохранены)!\nВозвращайтесь для следующей смены."
+                )
+
         except Exception as e:
-            logger.warning(f"Не удалось удалить фото: {e}")
-
-        # 5. Финальное сообщение
-        if photo_sent:
-            await update.message.reply_text("✅ Отчёт и фото отправлены в чат клуба!\nВозвращайтесь для следующей смены.")
-        else:
-            await update.message.reply_text("✅ Отчёт принят!\nВозвращайтесь для следующей смены.")
-
-        self._clear_user_data(user_id)
+            logger.error(f"❌ Ошибка обработки фото: {e}", exc_info=True)
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Произошла ошибка при обработке. Попробуйте ещё раз."
+            )
+        finally:
+            # Очищаем временные данные
+            self.pending_media.pop(user_id, None)
+            self._clear_user_data(user_id)
