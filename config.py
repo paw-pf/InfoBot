@@ -9,8 +9,8 @@ load_dotenv()
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = os.getenv("ALLOWED_USERS", "")
-REPORT_CHAT_ID = os.getenv("REPORT_CHAT_ID", "")
-REPORT_THREAD_ID = os.getenv("REPORT_THREAD_ID", "")
+REPORT_CHAT_ID = os.getenv("REPORT_CHAT_ID")
+REPORT_THREAD_ID = os.getenv("REPORT_THREAD_ID")
 
 # Google Sheets
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
@@ -25,6 +25,19 @@ if ALLOWED_USERS:
     ALLOWED_USERS_SET = set(int(uid.strip()) for uid in ALLOWED_USERS.split(","))
 else:
     ALLOWED_USERS_SET = None
+
+# Safe integer conversion for optional IDs
+def _safe_int(value: str | None) -> int | None:
+    """Converts string to int safely, returns None if empty or invalid"""
+    if not value:
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+REPORT_CHAT_ID_INT = _safe_int(REPORT_CHAT_ID)
+REPORT_THREAD_ID_INT = _safe_int(REPORT_THREAD_ID)
 
 # Logging
 logging.basicConfig(
