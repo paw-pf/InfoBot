@@ -1,5 +1,6 @@
 # Telegram Bot
 python-telegram-bot==20.7
+python-telegram-bot[job-queue]>=20.0
 
 # Google Sheets
 gspread==5.12.4
