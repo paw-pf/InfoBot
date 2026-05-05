@@ -41,4 +41,5 @@ class POSReport:
             "expense": self.expense,
             "envelope": self.envelope,
             "cash_remainder": self.cash_remainder,
+            "receiver": self.receiver,
         }

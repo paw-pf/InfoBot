@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime, timedelta
 from typing import Dict
 from enum import Enum
@@ -43,6 +42,8 @@ class InputState(Enum):
     ENVELOPE = "envelope"  # В конверт
     CASH_REMAINDER = "cash_remainder"  # Остаток в кассе
     PHOTO = "photo"
+    RECEIVER = "receiver"
+    CONFIRM = "confirm"
 
 
 class BotHandler:
@@ -91,6 +92,7 @@ class BotHandler:
             f"Остаток в кассе - {get('cash_remainder', '0')}\n"
             f"{'=' * 26}\n"
             f"Смену сдал: {get('name', 'Неизвестно')}\n"
+            f"Смену принял: {get('receiver', '')}\n"
         )
 
 
@@ -220,11 +222,59 @@ class BotHandler:
         self._set_user_state(update.effective_user.id, InputState.CASH_REMAINDER)
         await context.bot.send_message(chat_id=update.effective_chat.id, text="🏦 Введите сумму Остаток в кассе:")
 
+    async def _ask_receiver(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        self._set_user_state(update.effective_user.id, InputState.RECEIVER)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="👤 Введите имя сотрудника, принявшего смену:"
+        )
+
 
     async def _ask_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         self._set_user_state(update.effective_user.id, InputState.PHOTO)
         await context.bot.send_message(chat_id=update.effective_chat.id, text="📸 Прикрепите фото конверта с чеками:")
 
+    async def _ask_confirm_direct(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, report_text: str):
+        """Показывает подтверждение при вызове из таймера (без update.message)"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        keyboard = [
+            [
+                InlineKeyboardButton("✏️ Редактировать", callback_data="edit_report"),
+                InlineKeyboardButton("✅ Подтверждаю", callback_data="send_report")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if user_id in self.pending_media:
+            self.pending_media[user_id]["report_text"] = report_text
+
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"📋 Проверьте данные перед отправкой:\n\n{report_text}",
+            reply_markup=reply_markup
+        )
+
+    async def _ask_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE, report_text: str):
+        """Показывает отчет и кнопки подтверждения (когда есть update.message)"""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        keyboard = [
+            [
+                InlineKeyboardButton("✏️ Редактировать", callback_data="edit_report"),
+                InlineKeyboardButton("✅ Подтверждаю", callback_data="send_report")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        user_id = update.effective_user.id
+        if user_id in self.pending_media:
+            self.pending_media[user_id]["report_text"] = report_text
+
+        await update.message.reply_text(
+            f"📋 Проверьте данные перед отправкой:\n\n{report_text}",
+            reply_markup=reply_markup
+        )
 
     # --- Обработчик текста ---
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -251,6 +301,17 @@ class BotHandler:
                 return
             self.user_data[user_id]["name"] = text
             await update.message.reply_text(f"✅ Принято: {text}\n\nНачинаем ввод данных:")
+            await self._ask_receiver(update, context)
+            return
+
+        if state == InputState.RECEIVER:
+            if len(text.strip()) < 2:
+                await update.message.reply_text("❌ Пожалуйста, введите имя (минимум 2 символа):")
+                return
+
+            self.user_data[user_id]["receiver"] = text.strip()
+            await update.message.reply_text(f"✅ Принято: {text.strip()}\n\nНачинаем ввод данных:")
+
             await self._ask_total(update, context)
             return
 
@@ -283,24 +344,62 @@ class BotHandler:
 
             # Переход к следующему шагу
             next_step = {
-                InputState.TOTAL: self._ask_game_time,  # После Итого -> Игровое время
-                InputState.GAME_TIME: self._ask_bar,  # После Игрового -> Бар
-                InputState.BAR: self._ask_cash,  # После Бара -> Нал
-                InputState.CASH: self._ask_cashless,  # После Нала -> Безнал
-                InputState.CASHLESS: self._ask_sbp,  # После Безнала -> СБП
-                InputState.SBP: self._ask_acquiring,  # После СБП -> Эквайринг
-                InputState.ACQUIRING: self._ask_services,  # После Эквайринга -> Услуги
-                InputState.SERVICES: self._ask_smoke,  # После Услуг -> Кальяны
-                InputState.SMOKE: self._ask_return_cash,  # После Кальянов -> Возврат нал
-                InputState.RETURN_CASH: self._ask_return_cashless,  # После Возврата нал -> Возврат безнал
-                InputState.RETURN_CASHLESS: self._ask_cash_in,  # После Возврата безнал -> Приход
-                InputState.CASH_IN: self._ask_expense,  # После Прихода -> Расход
-                InputState.EXPENSE: self._ask_envelope,  # После Расхода -> В конверт
-                InputState.ENVELOPE: self._ask_cash_remainder,  # После В конверт -> Остаток
-                InputState.CASH_REMAINDER: self._ask_photo,  # После Остатка -> Фото
+                InputState.RECEIVER: self._ask_total,
+                InputState.TOTAL: self._ask_game_time,
+                InputState.GAME_TIME: self._ask_bar,
+                InputState.BAR: self._ask_cash,
+                InputState.CASH: self._ask_cashless,
+                InputState.CASHLESS: self._ask_sbp,
+                InputState.SBP: self._ask_acquiring,
+                InputState.ACQUIRING: self._ask_services,
+                InputState.SERVICES: self._ask_smoke,
+                InputState.SMOKE: self._ask_return_cash,
+                InputState.RETURN_CASH: self._ask_return_cashless,
+                InputState.RETURN_CASHLESS: self._ask_cash_in,
+                InputState.CASH_IN: self._ask_expense,
+                InputState.EXPENSE: self._ask_envelope,
+                InputState.ENVELOPE: self._ask_cash_remainder,
+                InputState.CASH_REMAINDER: self._ask_photo,
             }
             if next_step.get(state):
                 await next_step[state](update, context)
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка нажатий на кнопки подтверждения"""
+        query = update.callback_query
+        if query is None:
+            return
+
+        await query.answer()
+        user_id = query.from_user.id
+        data = query.data
+
+        if data == "send_report":
+            # ✅ Пользователь подтвердил — реально отправляем
+            await query.edit_message_text("⏳ Отправляю отчёт...")
+            await self._send_report_final(context, user_id)
+
+
+
+        elif data == "edit_report":
+            # ✏️ Пользователь хочет редактировать — сбрасываем всё
+            user_id = query.from_user.id
+            # Очищаем временные данные (фото, таймер, отчет)
+            if user_id in self.pending_media:
+                # Пробуем удалить таймер, если он ещё активен
+                timer = self.pending_media[user_id].get("timer")
+                if timer:
+                    try:
+                        timer.schedule_removal()
+                    except Exception:
+                        pass
+                self.pending_media.pop(user_id, None)
+            # Сбрасываем состояние пользователя к началу ввода данных
+            self._set_user_state(user_id, InputState.TOTAL)
+            await query.edit_message_text(
+                "✏️ Режим редактирования. Введите новое значение для первого поля:"
+            )
+            await self._ask_total(update, context)
 
 
     # --- Обработчик фото ---
@@ -346,14 +445,18 @@ class BotHandler:
 
         # === Если это альбом — ждём остальные фото ===
         if media_group_id:
-            # Отменяем предыдущий таймер, если был
+            # Отменяем предыдущий таймер, если был (безопасно)
             if pending["timer"]:
-                pending["timer"].schedule_removal()
+                try:
+                    pending["timer"].schedule_removal()
+                except Exception:
+                    # Таймер уже выполнен или удалён — это нормально
+                    pass
 
-            # Планируем обработку через 2 секунды (ждем остальные фото из альбома)
+            # Планируем обработку через 2 секунды
             pending["timer"] = context.job_queue.run_once(
                 lambda ctx: self._process_pending_photos(ctx, user_id),
-                when=2,  # 2 секунды паузы
+                when=2,
                 name=f"process_photos_{user_id}"
             )
 
@@ -364,8 +467,11 @@ class BotHandler:
         # === Одиночное фото — обрабатываем сразу ===
         await self._process_pending_photos(context, user_id)
 
-    async def _process_pending_photos(self, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-        """Обработка собранных фото (исправленная версия)"""
+    async def _process_pending_photos(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, update: Update = None):
+        """
+        Генерирует отчет и показывает кнопки подтверждения.
+        НЕ сохраняет и НЕ отправляет — это делает handle_callback после подтверждения.
+        """
         if user_id not in self.pending_media:
             return
 
@@ -377,15 +483,38 @@ class BotHandler:
             return
 
         try:
-            # Генерируем отчёт (если ещё не сгенерирован)
             if pending["report_text"] is None:
                 pending["report_text"] = self._generate_report_text(self.user_data[user_id])
             report_text = pending["report_text"]
 
-            # Показываем отчёт пользователю
-            await context.bot.send_message(chat_id=user_id, text=report_text)
+            if update and update.message:
+                await self._ask_confirm(update, context, report_text)
+            else:
+                await self._ask_confirm_direct(context, user_id, report_text)
 
-            # Сохраняем в Google Sheets
+            return
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при показе подтверждения: {e}", exc_info=True)
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Произошла ошибка. Попробуйте ещё раз."
+            )
+
+    async def _send_report_final(self, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+        """
+        Сохраняет в Google Sheets и отправляет фото в чат.
+        Вызывается ТОЛЬКО после нажатия "✅ Подтверждаю".
+        """
+        if user_id not in self.pending_media:
+            return
+
+        pending = self.pending_media[user_id]
+        photos = pending["photos"]
+        report_text = pending.get("report_text", "")
+
+        try:
+            # 1. Сохраняем в Google Sheets
             try:
                 d = self.user_data[user_id]
                 report_obj = POSReport(
@@ -401,48 +530,33 @@ class BotHandler:
                 logger.error(f"Error saving to Google Sheets: {e}")
                 await context.bot.send_message(chat_id=user_id, text="⚠️ Ошибка при сохранении в таблицу.")
 
-            # === Отправляем фото в рабочий чат ===
-            # === Отправляем фото в рабочий чат (ОДНИМ АЛЬБОМОМ) ===
+            # 2. Отправляем фото альбомом в рабочий чат
             photo_sent = False
-
             if REPORT_CHAT_ID_INT and photos:
                 try:
-                    # Готовим медиа для отправки альбомом
+                    from telegram import InputMediaPhoto
                     media_list = []
                     for i, photo_data in enumerate(photos):
                         if i == 0:
-                            # Первое фото с подписью (отчёт)
-                            from telegram import InputMediaPhoto
                             media = InputMediaPhoto(
                                 media=photo_data["bytes"],
                                 caption=report_text,
                                 parse_mode="HTML"
                             )
                         else:
-                            # Остальные фото без подписи
                             media = InputMediaPhoto(media=photo_data["bytes"])
                         media_list.append(media)
 
-                    # Отправляем альбом
-                    send_kwargs = {
-                        "chat_id": REPORT_CHAT_ID_INT,
-                        "media": media_list,
-                    }
+                    send_kwargs = {"chat_id": REPORT_CHAT_ID_INT, "media": media_list}
                     if REPORT_THREAD_ID_INT:
                         send_kwargs["message_thread_id"] = REPORT_THREAD_ID_INT
 
                     await context.bot.send_media_group(**send_kwargs)
-                    logger.info(f"✅ Отправлен альбом из {len(photos)} фото в чат")
                     photo_sent = True
-
                 except Exception as e:
-                    logger.error(f"Failed to send album to chat: {e}")
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="⚠️ Фото не отправлены в чат (ошибка отправки)."
-                    )
+                    logger.error(f"Failed to send album: {e}")
 
-            # Финальное сообщение пользователю
+            # 3. Финальное сообщение пользователю
             if photo_sent:
                 await context.bot.send_message(
                     chat_id=user_id,
@@ -451,16 +565,16 @@ class BotHandler:
             else:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"✅ Отчёт принят ({len(photos)} фото сохранены)!\nВозвращайтесь для следующей смены."
+                    text=f"✅ Отчёт принят!\nВозвращайтесь для следующей смены."
                 )
 
         except Exception as e:
-            logger.error(f"❌ Ошибка обработки фото: {e}", exc_info=True)
+            logger.error(f"❌ Ошибка отправки отчёта: {e}", exc_info=True)
             await context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Произошла ошибка при обработке. Попробуйте ещё раз."
+                text="❌ Ошибка при отправке. Попробуйте ещё раз."
             )
         finally:
-            # Очищаем временные данные
+            # Очищаем данные в любом случае
             self.pending_media.pop(user_id, None)
             self._clear_user_data(user_id)

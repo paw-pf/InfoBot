@@ -62,15 +62,20 @@ class GoogleSheetsManager:
     @staticmethod
     def _normalize_date(date_str: str) -> str:
         """
-        Приводит дату к формату ДД.ММ для точного сравнения.
+        Нормализует дату к формату 'день.месяц' где:
+        - день БЕЗ ведущего нуля: 4
+        - месяц С ведущим нулем: 05
         Примеры:
-        - "пт 1.05.2026" → "01.05"
-        - "02.05.2026" → "02.05"
-        - "2.05" → "02.05"
+        - '4.05.2026' → '4.05'
+        - '04.05.2026' → '4.05'
+        - 'пт 4.5' → '4.05'
+        - '04.5.2026' → '4.05'
         """
         match = re.search(r'(\d{1,2})\.(\d{1,2})', date_str)
         if match:
-            day = match.group(1).zfill(2)
+            # День: убираем ведущие нули (04 → 4, 4 → 4)
+            day = match.group(1).lstrip('0') or '0'
+            # Месяц: добавляем ведущий ноль если нужно (5 → 05, 05 → 05)
             month = match.group(2).zfill(2)
             return f"{day}.{month}"
         return date_str.strip()
@@ -78,51 +83,48 @@ class GoogleSheetsManager:
     def _find_row(self, date: str, shift: str) -> Optional[int]:
         """
         Ищет строку по дате и смене.
-        Поддерживает пустые ячейки даты (наследуются от строки выше).
+        Дата нормализуется без ведущих нулей, смена — по вхождению.
         """
         try:
             all_values = self.sheet.get_all_values()
 
-            target_date = self._normalize_date(date)
-            # Очищаем искомую смену от всего лишнего
-            target_shift = shift.strip().lower().replace('\u200b', '').replace('\xa0', ' ').strip()
+            # Нормализуем дату: "04.05.2026" → "4.5"
+            target_date_core = self._normalize_date(date)
+            # Смена: "День" → "день"
+            target_shift_lower = shift.strip().lower()
 
-            last_date = None
-            found_any = False  # Флаг: нашли ли хоть какие-то строки
+            last_date_core = None
 
-            logger.info(f"🔍 Поиск: дата='{target_date}', смена='{target_shift}'")
+            logger.info(f"🔍 Поиск: дата='{target_date_core}', смена='{target_shift_lower}'")
 
-            for row_idx, row in enumerate(all_values[1:], start=2):
-                # Безопасное получение значений
-                raw_date = row[0].strip() if len(row) > 0 and row[0] else ""
-                raw_shift = row[1].strip() if len(row) > 1 and row[1] else ""
+            for row_idx, row in enumerate(all_values, start=1):
+                if row_idx == 1:
+                    continue
+
+                raw_date = str(row[0]).strip() if len(row) > 0 else ""
+                raw_shift = str(row[1]).strip() if len(row) > 1 else ""
 
                 # Пропускаем служебные строки
-                if "итого" in raw_date.lower() or raw_date.startswith("#") or raw_date.startswith("Выручка"):
+                skip = ['итого', 'выручка', 'прогноз', 'план', '#ref', 'администратор', 'z-отчет']
+                if any(kw in raw_date.lower() or kw in raw_shift.lower() for kw in skip):
                     continue
 
-                # Наследование даты: если ячейка пустая, берём последнюю известную
-                if raw_date:
-                    last_date = self._normalize_date(raw_date)
+                # Наследование даты
+                if raw_date and not raw_date.startswith('#'):
+                    last_date_core = self._normalize_date(raw_date)
 
-                # Если дата так и не определилась — пропускаем
-                if not last_date:
+                if not last_date_core:
                     continue
-
-                current_date = last_date
-
-                # Очищаем смену из таблицы
-                clean_shift = raw_shift.lower().replace('\u200b', '').replace('\xa0', ' ').strip()
 
                 # Сравнение
-                if current_date == target_date and clean_shift == target_shift:
-                    logger.info(f"✅ СОВПАДЕНИЕ! Строка {row_idx}")
+                date_match = target_date_core == last_date_core
+                shift_match = target_shift_lower in raw_shift.lower()
+
+                if date_match and shift_match:
+                    logger.info(f"✅ СОВПАДЕНИЕ! Строка {row_idx}: '{raw_date}' | '{raw_shift}'")
                     return row_idx
 
-            if not found_any:
-                logger.warning("⚠️ В таблице нет данных для проверки (пустая таблица?)")
-            else:
-                logger.warning(f"❌ Не найдено. Искомое: '{target_date}' | '{target_shift}'")
+            logger.warning(f"❌ Не найдено: '{target_date_core}' | '{target_shift_lower}'")
             return None
 
         except Exception as e:

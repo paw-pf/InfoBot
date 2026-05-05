@@ -4,7 +4,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     filters,
-    ContextTypes, JobQueue,
+    ContextTypes, JobQueue, CallbackQueryHandler,
 )
 
 from config import TELEGRAM_BOT_TOKEN, logger
@@ -41,6 +41,8 @@ def main():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     handler = BotHandler()
+
+    app.add_handler(CallbackQueryHandler(handler.handle_callback))
 
     app.add_handler(CommandHandler("start", handler.start_command))
 
