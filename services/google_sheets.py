@@ -1,3 +1,4 @@
+import datetime
 import logging
 import re
 from typing import Optional
@@ -16,6 +17,7 @@ class GoogleSheetsManager:
         self.client = None
         self.sheet = None
         self._authenticate()
+        self._set_active_sheet()
 
     def _authenticate(self):
         try:
@@ -25,11 +27,23 @@ class GoogleSheetsManager:
             )
             self.client = gspread.authorize(creds)
             self.spreadsheet = self.client.open_by_key(GOOGLE_SHEET_ID)
-            self.sheet = self.spreadsheet.sheet1
             logger.info("✅ Google Sheets подключены")
         except Exception as e:
             logger.error(f"❌ Ошибка подключения к Google Sheets: {e}")
             raise
+
+    def _set_active_sheet(self):
+        """Находит или создает лист с названием 'Отчеты MM.YYYY' за текущий месяц"""
+        now = datetime.datetime.now()
+        target_name = f"Отчеты {now.month:02d}.{now.year}"
+
+        try:
+            self.sheet = self.spreadsheet.worksheet(target_name)
+            logger.info(f"📅 Подключен к листу: '{self.sheet.title}'")
+        except gspread.exceptions.WorksheetNotFound:
+            logger.info(f"🆕 Лист '{target_name}' не найден. Создаю новый...")
+            self.sheet = self.spreadsheet.add_worksheet(title=target_name, rows=1000, cols=20)
+            logger.info(f"✅ Создан новый лист: '{self.sheet.title}'")
 
     @staticmethod
     def _fmt_money(value: Optional[str], prefix: str = "", with_rub: bool = False) -> str:
